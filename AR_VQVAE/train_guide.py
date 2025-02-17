@@ -61,21 +61,21 @@ class ModelTrainer:
             drop_last = False)
         return train_loader, val_loader
     
-    # 准备自回归的输入tokens和目标tokens
+    
     def _prepare_tokens(self, motions: torch.Tensor) -> (torch.Tensor):
         motions = motions.reshape(motions.shape[0], motions.shape[1], -1) # [B, T, N, C] -> [B, T, NC]
         B, T, _ = motions.shape
-        # target_tokens和input_tokens错位一个，形成自回归
-        target_tokens = self.tokenizer.predict(motions) # 调用VQVAE获取out_indices [B T residual_depth] 
-        target_tokens = target_tokens.reshape(B, -1) # [B T*residual_depth] # 目标tokens是VQVAE输出的码本数值
+       
+        target_tokens = self.tokenizer.predict(motions) 
+        target_tokens = target_tokens.reshape(B, -1) 
         input_tokens = torch.cat([   
-                torch.zeros((B, 1), dtype = target_tokens.dtype, device = target_tokens.device) + self.model.tokens, # 第一个token用self.model.tokens表示
+                torch.zeros((B, 1), dtype = target_tokens.dtype, device = target_tokens.device) + self.model.tokens, 
                 target_tokens[:, :-1] # [B T*residual_depth-1]
             ], axis = -1) # input_tokens = [B, T*residual_depth] # 输入tokens 
         # new_mask = torch.ones((B, 1, 1, T), dtype = torch.bool) # All True
         return input_tokens, target_tokens, motions.reshape((B, T, -1))
     
-    # 计算生成motion和源motion的L2损失
+    
     def cal_l2loss(self, a: torch.Tensor, b: torch.Tensor) -> float:
         loss = (a - b) ** 2 # L2 Loss
         loss = self.sum_flat(loss) # [B]
@@ -110,15 +110,15 @@ class ModelTrainer:
                 label_atten_mask = label_names['attention_mask'].squeeze(1).cuda(self.device[0]) # B 1 10
                 label_token_typeID = label_names['token_type_ids'].squeeze(1).cuda(self.device[0]) # B 1 10
                 audio = audio.float().cuda(self.device[0]) # B 48000 2
-                # 准备自回归的输入tokens和目标tokens tokens:[B, T*residual_depth] down_gt:[B T NC]
-                input_tokens, target_tokens, gt_motion = self._prepare_tokens(gt_motion) # 调用stage1的Encoder
+                
+                input_tokens, target_tokens, gt_motion = self._prepare_tokens(gt_motion) 
                 B, T = input_tokens.shape[0], input_tokens.shape[1]
             
             self.optimizer.zero_grad()
             # forward text_condition: th.Tensor, audio_condition: th.Tensor
             logits = self.model(tokens = input_tokens, text_ids = label_input_ids, text_masks = label_atten_mask, Text_tokenType = label_token_typeID,
-                                 audio_condition = audio, cond_drop_prob=0.20) # 调用自回归transformer [B, T*residual_depth, code_dim]
-            # 将生成的logits和target_tokens计算交叉熵损失，实现自回归损失计算
+                                 audio_condition = audio, cond_drop_prob=0.20) 
+            
             loss = self.ce_loss(logits.reshape((B * T, -1)), target_tokens.reshape((B * T)).long())
             # backward
             loss.backward()
@@ -126,9 +126,9 @@ class ModelTrainer:
 
             with torch.no_grad():
                 pred_tokens = torch.argmax(logits, dim = -1).view(input_tokens.shape[0], -1, self.tokenizer.residual_depth) # get the pred_tokens [B T residual_depth]
-                pred_motions = self.tokenizer.decode(pred_tokens).detach().cpu() # 调用VQVAE解码pose # [B T NC]
+                pred_motions = self.tokenizer.decode(pred_tokens).detach().cpu() 
                 l2_loss = self.cal_l2loss(gt_motion.cpu(), pred_motions) # cal l2loss between gt_motion and pred_motion
-                acc = self.compute_accuracy(logits, target_tokens) # 计算预测codebook index的准确率
+                acc = self.compute_accuracy(logits, target_tokens)
                 
                 total_celoss.append(loss.item())
                 total_l2loss.append(l2_loss.item())
